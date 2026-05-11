@@ -163,24 +163,47 @@ class RunwareMusic(BaseTool):
         force_instrumental = bool(inputs.get("force_instrumental", True))
         output_format = inputs.get("output_format", "WAV")
 
+        # Build per-model. The Runware API enforces different parameter
+        # shapes per audio model — there's no universal request schema.
+        negative_prompt = (inputs.get("negative_prompt") or "").strip()
+        instrumental_neg = (
+            "vocals, singing, lyrics, choir, vocal harmonies, voice, "
+            "spoken word, rap, anthemic chorus"
+        )
+        if force_instrumental:
+            negative_prompt = (
+                f"{negative_prompt}, {instrumental_neg}" if negative_prompt else instrumental_neg
+            )
+
         req_kwargs: dict[str, Any] = {
             "positivePrompt": prompt,
             "model": model,
-            "duration": duration,
             "outputFormat": output_format,
             "includeCost": True,
         }
         if inputs.get("seed") is not None:
             req_kwargs["seed"] = int(inputs["seed"])
 
-        # forceInstrumental lives in provider settings (varies per model).
-        # ElevenLabs Music: providerSettings.elevenlabs.forceInstrumental
-        # MiniMax Music: instrumental
-        if force_instrumental:
-            if model.startswith("elevenlabs"):
-                req_kwargs["providerSettings"] = {"elevenlabs": {"forceInstrumental": True}}
-            elif model.startswith("minimax"):
-                req_kwargs["providerSettings"] = {"minimax": {"instrumental": True}}
+        if model.startswith("minimax"):
+            # MiniMax 2.6 rejects top-level `duration` and `negativePrompt`.
+            # `settings` only accepts {lyrics, instrumental, lyricsOptimizer}.
+            # Model picks duration internally (~3 min).
+            # Anti-vocal cues must be fused into the positive prompt instead.
+            if force_instrumental and instrumental_neg.lower() not in prompt.lower():
+                req_kwargs["positivePrompt"] = (
+                    prompt + ". Strictly instrumental. No vocals, no singing, "
+                    "no lyrics, no choir, no spoken word, no anthemic chorus."
+                )
+            settings_dict: dict[str, Any] = {}
+            if force_instrumental:
+                settings_dict["instrumental"] = True
+            if settings_dict:
+                req_kwargs["settings"] = settings_dict
+        else:
+            # ElevenLabs Music and others: top-level duration + negativePrompt
+            req_kwargs["duration"] = duration
+            if negative_prompt:
+                req_kwargs["negativePrompt"] = negative_prompt
 
         req = IAudioInference(**req_kwargs)
 

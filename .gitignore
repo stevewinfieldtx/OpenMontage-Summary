@@ -27,6 +27,9 @@ projects/
 # Ingest cache (downloaded source audio + Whisper transcripts — regenerable)
 .cache/
 
+# moviepy temp files (audio rendering leaves *TEMP_MPY_wvf_snd* artifacts)
+*TEMP_MPY_*
+
 # Corpus directories (downloaded stock clips, thumbnails, embeddings —
 # regenerable from source APIs via corpus_builder). Explicit rule even
 # though most corpora live under projects/ since agents sometimes

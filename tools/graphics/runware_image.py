@@ -124,6 +124,12 @@ class RunwareImage(BaseTool):
         except Exception as e:
             return ToolResult(success=False, error=f"runware_image failed: {type(e).__name__}: {e}")
 
+    @staticmethod
+    def _snap_to_64(n: int) -> int:
+        """Runware requires dimensions in multiples of 64, [128, 2048]."""
+        n = max(128, min(2048, int(n)))
+        return ((n + 32) // 64) * 64
+
     async def _execute_async(self, inputs: dict[str, Any]) -> ToolResult:
         api_key = self._get_api_key()
         if not api_key:
@@ -140,8 +146,10 @@ class RunwareImage(BaseTool):
 
         model = inputs.get("model", "runware:101@1")
         prompt = inputs["prompt"]
-        width = int(inputs.get("width", 1024))
-        height = int(inputs.get("height", 1024))
+        raw_w = int(inputs.get("width", 1024))
+        raw_h = int(inputs.get("height", 1024))
+        width = self._snap_to_64(raw_w)
+        height = self._snap_to_64(raw_h)
         num_variants = max(1, min(int(inputs.get("num_variants", 1)), 8))
 
         # Build the inference request. seed is optional.
@@ -169,11 +177,35 @@ class RunwareImage(BaseTool):
         saved_paths: list[str] = []
         total_cost = 0.0
         seeds: list[int | None] = []
+        download_failures: list[dict[str, Any]] = []
+
+        async def _download_with_retry(client: "httpx.AsyncClient", url: str, dest: Path) -> bool:
+            """Retry transient Runware CDN failures (404/5xx) with backoff."""
+            delays = [1.5, 3.0, 6.0]
+            for attempt, delay in enumerate([0.0] + delays):
+                if delay:
+                    await asyncio.sleep(delay)
+                try:
+                    r = await client.get(url, timeout=30.0)
+                    r.raise_for_status()
+                    dest.write_bytes(r.content)
+                    return True
+                except httpx.HTTPStatusError as e:
+                    code = e.response.status_code
+                    if code in (404, 408, 429, 500, 502, 503, 504) and attempt < len(delays):
+                        continue
+                    return False
+                except (httpx.TimeoutException, httpx.ConnectError):
+                    if attempt < len(delays):
+                        continue
+                    return False
+            return False
 
         async with httpx.AsyncClient() as http:
             for i, img in enumerate(results):
                 url = getattr(img, "imageURL", None) or getattr(img, "image_url", None)
                 if not url:
+                    download_failures.append({"index": i, "reason": "no URL on result"})
                     continue
                 cost = getattr(img, "cost", 0.0) or 0.0
                 total_cost += cost
@@ -193,10 +225,16 @@ class RunwareImage(BaseTool):
                     out_path = Path(f"runware_image_{task_id}.png")
 
                 out_path.parent.mkdir(parents=True, exist_ok=True)
-                r = await http.get(url, timeout=30.0)
-                r.raise_for_status()
-                out_path.write_bytes(r.content)
-                saved_paths.append(str(out_path))
+                if await _download_with_retry(http, url, out_path):
+                    saved_paths.append(str(out_path))
+                else:
+                    download_failures.append({"index": i, "url": url, "reason": "CDN download failed after retries"})
+
+        if not saved_paths:
+            return ToolResult(
+                success=False,
+                error=f"Runware returned {len(results)} results but no images downloaded: {download_failures}",
+            )
 
         return ToolResult(
             success=True,
