@@ -1,0 +1,271 @@
+name: DRiX-Montage
+version: "0.1"
+description: >
+  Condenses a long-form YouTube sermon (typically 30-60 minutes) into a 6-10 minute
+  music-driven gateway video designed for modern attention spans. No narrator voice.
+  Carried by: kinetic-typography pull-quotes from the sermon, FLUX.1 Dev generated
+  imagery in a "cinematic nostalgia documentary" aesthetic, sparingly-used preacher
+  audio clips (30-90 seconds total), and Runware-generated music (MiniMax Music 2.6 as workhorse; 2-3 contiguous stems crossfaded by the compose-director to cover the 6-10 minute arc, since MiniMax caps near 3 min per generation; ElevenLabs Music v1 is the structural-control upgrade path) tuned
+  to the sermon's emotional arc. Ends with a clickable CTA card to the full sermon.
+  Built as a gateway funnel: the condensed video makes viewers want to watch the
+  full sermon, not replace it.
+category: hybrid
+stability: beta
+default_checkpoint_policy: guided
+
+orchestration:
+  mode: executive-producer
+  skill: pipelines/DRiX-Montage/executive-producer
+  budget_default_usd: 3.00
+  max_revisions_per_stage: 3
+  max_send_backs: 3
+  max_wall_time_minutes: 45
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: true
+
+required_skills:
+  - pipelines/DRiX-Montage/executive-producer
+  - pipelines/DRiX-Montage/ingest-director
+  - pipelines/DRiX-Montage/idea-director
+  - pipelines/DRiX-Montage/script-director
+  - pipelines/DRiX-Montage/scene-director
+  - pipelines/DRiX-Montage/asset-director
+  - pipelines/DRiX-Montage/edit-director
+  - pipelines/DRiX-Montage/compose-director
+  - pipelines/DRiX-Montage/publish-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+compatible_playbooks:
+  recommended:
+    - cinematic-nostalgia-documentary
+  also_works: []
+  custom_allowed: true
+
+stages:
+  - name: ingest
+    skill: pipelines/DRiX-Montage/ingest-director
+    produces:
+      - source_media
+      - transcript
+    required_tools:
+      - youtube_ingest
+    optional_tools:
+      - scripture_correction
+    tools_available:
+      - youtube_ingest
+      - scripture_correction
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Source YouTube video downloaded with metadata cached
+      - Transcript produced with timestamped segments
+      - Scripture and proper-noun correction pass applied (Bible names, theological terms)
+      - Speaker identifiable (single-speaker sermon expected; sermon-only cut preferred over full service)
+    success_criteria:
+      - Schema-valid source_media artifact with video_id, channel, title, duration
+      - Schema-valid transcript artifact with corrected text and timestamps
+      - Transcript cache persisted at .cache/youtube/{video_id}/
+
+  - name: idea
+    skill: pipelines/DRiX-Montage/idea-director
+    required_artifacts_in:
+      - transcript
+    produces:
+      - brief
+      - decision_log
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Sermon thesis identified as single sentence
+      - Top 3-5 key points extracted from the message
+      - Primary scripture references catalogued
+      - Call to action clearly identified
+      - Emotional arc mapped (contemplative open → building → climax → resolution → CTA outro)
+      - Target duration set within 6-10 minute envelope
+    success_criteria:
+      - Schema-valid brief artifact
+      - thesis, key_points, scripture_refs, cta, emotional_arc all present in metadata
+
+  - name: script
+    skill: pipelines/DRiX-Montage/script-director
+    required_artifacts_in:
+      - brief
+      - transcript
+    produces:
+      - script
+    optional_tools:
+      - web_search
+    tools_available:
+      - web_search
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Beat sheet structured as 8-14 narrative beats matching target duration
+      - Each beat typed as pull_quote, scripture_overlay, moment (visual only), or audio_clip
+      - 2-3 recurring visual motifs planted early and paid off at climax (Mirrors rule)
+      - Preacher audio clips selected (30-90s total across 3-4 short cuts)
+      - First-8-seconds hook locked with the strongest single line
+      - CTA beat with on-screen sermon title + link planned for close
+      - 10% gentle observational humor present (wry, never jokes)
+      - 40% nostalgia / 30% music / 20% imperfect footage / 10% humor proportions respected
+    success_criteria:
+      - Schema-valid script artifact with beats array
+      - Each beat has timestamp, type, text, duration
+      - First-8-second hook explicitly flagged in metadata
+
+  - name: scene_plan
+    skill: pipelines/DRiX-Montage/scene-director
+    required_artifacts_in:
+      - script
+    optional_artifacts_in:
+      - brief
+    produces:
+      - scene_plan
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Every beat has a planned visual treatment
+      - 80% literal lived-in / 20% impressionistic abstract imagery mix maintained
+      - Recurring visual motifs scheduled at plant + payoff beats
+      - Pull-quote typography placement decisions made (serif, off-center, grain overlay)
+      - Music emotional arc mapped to beat timeline
+      - Per-shot motion treatment specified (Ken Burns, parallax, static, push-in)
+    success_criteria:
+      - Schema-valid scene_plan artifact
+      - Every script beat has a corresponding scene plan entry
+
+  - name: assets
+    skill: pipelines/DRiX-Montage/asset-director
+    required_artifacts_in:
+      - scene_plan
+      - script
+    produces:
+      - asset_manifest
+    required_tools:
+      - runware_image
+      - runware_music
+      - sermon_clip_extractor
+    optional_tools:
+      - runware_video
+      - subtitle_gen
+    tools_available:
+      - runware_image
+      - runware_music
+      - sermon_clip_extractor
+      - runware_video
+      - subtitle_gen
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - FLUX.1 Dev images use canonical style scaffold (Kodak Portra 400 anchor)
+      - Anti-cinematic anti-prompts applied to every generation
+      - Hand-heavy shots generated with 2+ variants for selection
+      - Music generated via ACE-Step with named-artist reference flavoring
+      - Music does NOT sound like worship band, Hillsong, or corporate uplift
+      - Preacher audio clips extracted clean (no music or announcement bleed)
+      - All assets stored under projects/{project_id}/assets/ with full provenance
+    success_criteria:
+      - Schema-valid asset_manifest artifact
+      - All referenced asset files exist on disk
+      - Image quality gate passed (no over-polished outputs reach manifest)
+
+  - name: edit
+    skill: pipelines/DRiX-Montage/edit-director
+    required_artifacts_in:
+      - scene_plan
+      - asset_manifest
+    optional_artifacts_in:
+      - script
+    produces:
+      - edit_decisions
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Beat timing matches music emotional arc
+      - First 8 seconds opens with the strongest hook beat (quality gate)
+      - Pull-quotes hold at least 3-4s for comfortable read time
+      - Recurring motif plants and payoffs land at script-specified beats
+      - Total duration within 6-10 minute target
+      - CTA card holds 4-6s with sermon link clearly readable
+    success_criteria:
+      - Schema-valid edit_decisions artifact
+      - Timeline duration within target range
+      - Every beat has timing reasoning documented
+
+  - name: compose
+    skill: pipelines/DRiX-Montage/compose-director
+    required_artifacts_in:
+      - edit_decisions
+      - asset_manifest
+    optional_artifacts_in:
+      - scene_plan
+    produces:
+      - render_report
+      - final_review
+    required_tools:
+      - video_compose
+      - audio_mixer
+    optional_tools:
+      - video_trimmer
+    tools_available:
+      - video_compose
+      - audio_mixer
+      - video_trimmer
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Music mixed under preacher audio clips at appropriate level (preacher audible)
+      - Kinetic typography rendered with serif font, subtle motion, grain overlay
+      - Scripture references rendered as design objects, not stock chyrons
+      - End-tag card with sermon link readable on first viewing
+      - Music fade timing matches emotional arc resolution
+      - Output passes ffprobe validation
+    success_criteria:
+      - Schema-valid render_report artifact
+      - Output file exists at projects/{project_id}/renders/{render_id}.mp4
+      - Audio peaks within -3dB ceiling
+
+  - name: publish
+    skill: pipelines/DRiX-Montage/publish-director
+    required_artifacts_in:
+      - render_report
+      - final_review
+    optional_artifacts_in:
+      - brief
+    produces:
+      - publish_log
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - YouTube title optimized (sermon thesis + curiosity hook, not click-bait)
+      - YouTube description includes sermon link + scripture references
+      - Thumbnail selected from generated FLUX stills
+      - Tags optimized for the church's existing channel
+    success_criteria:
+      - Schema-valid publish_log artifact
+      - Export directory contains video + thumbnail + metadata.json
+
+metadata:
+  product: DRiX Montage
+  brand_owner: DRiX
+  parent_engine: OpenMontage-Summary
+  audience: "Anyone who won't sit through a 35-60 minute sermon — broader than Millennials"
+  gateway_funnel: "Condensed video → CTA → full sermon on church channel"
+  aesthetic_lane: "cinematic nostalgia documentary"
+  composition_formula: "40% nostalgia / 30% music / 20% imperfect footage / 10% humor"
+  vendor_stack:
+    images: "Runware (FLUX.1 Dev, runware:101@1)"
+    music: "Runware (MiniMax Music 2.6, minimax:music@2.6 — workhorse; ElevenLabs Music v1 elevenlabs:1@1 reserved as upgrade for structural control)"
+    transcription: "Local Whisper"
+    composition: "Remotion + ffmpeg"
+    optional_video: "Runware (Wan/Kling/etc, used sparingly)"
+  test_target_url: "https://www.youtube.com/watch?v=XFuQLU_F0D8"
